@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Based on https://python101.readthedocs.io/pl/latest/pygame/pong/#
+import numpy as np
 import pygame
 from typing import Type
 import skfuzzy as fuzz
@@ -234,40 +235,39 @@ class HumanPlayer(Player):
 class FuzzyPlayer(Player):
     def __init__(self, racket: Racket, ball: Ball, board: Board):
         super(FuzzyPlayer, self).__init__(racket, ball, board)
-        # for Mamdami:
-        # x_dist = fuzz.control.Antecedent...
-        # y_dist = fuzz.control.Antecedent...
-        # velocity = fuzz.control.Consequent...
-        # self.racket_controller = fuzz.control.ControlSystem...
 
-        # visualize Mamdami
-        # x_dist.view()
-        # ...
+        # for Mamdani:
+        #   universe variables
+        max_x_diff = board.surface.get_width() - racket.width // 2 - ball.width // 2
+        max_y_diff = board.surface.get_height() - racket.height - racket.height // 2 - ball.height // 2
 
-        # for TSK:
-        # self.x_universe = np.arange...
-        # self.x_mf = {
-        #     "far_left": fuzz.trapmf(
-        #         self.x_universe,
-        #         [
-        #             ...
-        #         ],
-        #     ),
-        #     ...
-        # }
-        # ...
-        # self.velocity_fx = {
-        #     "f_slow_left": lambda x_diff, y_diff: -1 * (abs(x_diff) + y_diff),
-        #     ...
-        # }
+        racket_x_dist = fuzz.control.Antecedent(np.arange(-max_x_diff, max_x_diff + 1), "x_distance")
+        racket_y_dist = fuzz.control.Antecedent(np.arange(0, max_y_diff + 1), "y_distance")
+        racket_velocity = fuzz.control.Consequent(np.arange(-20, 21), "velocity")
 
-        # visualize TSK
-        # plt.figure()
-        # for name, mf in self.x_mf.items():
-        #     plt.plot(self.x_universe, mf, label=name)
-        # plt.legend()
-        # plt.show()
-        # ...
+        racket_x_dist["left"] = fuzz.trimf(racket_x_dist.universe, [-max_x_diff, -max_x_diff, 0])
+        racket_x_dist["racket_field"] = fuzz.trimf(racket_x_dist.universe, [-10, 0, 10])
+        racket_x_dist["right"] = fuzz.trimf(racket_x_dist.universe, [0, max_x_diff, max_x_diff])
+        racket_x_dist.view()
+
+        racket_y_dist["close"] = fuzz.trimf(racket_y_dist.universe, [0, 0, 200])
+        racket_y_dist["medium"] = fuzz.trimf(racket_y_dist.universe, [100, 200, 300])
+        racket_y_dist["far"] = fuzz.trimf(racket_y_dist.universe, [200, max_y_diff, max_y_diff])
+        racket_y_dist.view()
+
+        racket_velocity["left_fast"] = fuzz.trimf(racket_velocity.universe, [-20, -20, 0])
+        racket_velocity["slow"] = fuzz.trimf(racket_velocity.universe, [-5, 0, 5])
+        racket_velocity["right_fast"] = fuzz.trimf(racket_velocity.universe, [0, 20, 20])
+        racket_velocity.view()
+
+        # rules
+        rule_1 = fuzzcontrol.Rule(racket_x_dist["left"] & (racket_y_dist["far"] | racket_y_dist["medium"] | racket_y_dist["close"]), racket_velocity["right_fast"])
+
+        rule_2 = fuzzcontrol.Rule(racket_x_dist["racket_field"] & (racket_y_dist["close"] | racket_y_dist["medium"] | racket_y_dist["far"]), racket_velocity["slow"])
+
+        rule_3 = fuzzcontrol.Rule(racket_x_dist["right"] & (racket_y_dist["far"] | racket_y_dist["medium"] | racket_y_dist["close"]), racket_velocity["left_fast"])
+
+        self.racket_controller = fuzzcontrol.ControlSystem([rule_1, rule_2, rule_3])
 
     def act(self, x_diff: int, y_diff: int):
         velocity = self.make_decision(x_diff, y_diff)
@@ -275,35 +275,21 @@ class FuzzyPlayer(Player):
 
     def make_decision(self, x_diff: int, y_diff: int):
         # for Mamdami:
-        # self.racket_controller.compute()
-        # velocity = self.racket_controller.o..
+        racket_simulator = fuzzcontrol.ControlSystemSimulation(self.racket_controller)
 
-        # for TSK:
-        # x_vals = {
-        #     name: fuzz.interp_membership(self.x_universe, mf, x_diff)
-        #     for name, mf in self.x_mf.items()
-        # }
-        # ...
-        # rule activations with Zadeh norms
-        # activations = {
-        #     "f_slow_left": max(
-        #         [
-        #             min(x_vals...),
-        #             min(x_vals...),
-        #         ]
-        #     ),
-        #     ...
-        # }
+        racket_simulator.input["x_distance"] = x_diff
+        racket_simulator.input["y_distance"] = y_diff
 
-        # velocity = sum(
-        #     activations[val] * self.velocity_fx[val](x_diff, y_diff)
-        #     for val in activations
-        # ) / sum(activations[val] for val in activations)
+        racket_simulator.compute()
 
-        return 0
+        try:
+            return racket_simulator.output["velocity"]
+        except KeyError:
+            print(x_diff, y_diff)
+            print("ERROR!")
 
 
 if __name__ == "__main__":
-    game = PongGame(800, 400, NaiveOponent, HumanPlayer)
-    # game = PongGame(800, 400, NaiveOponent, FuzzyPlayer)
+    # game = PongGame(800, 400, NaiveOponent, HumanPlayer)
+    game = PongGame(800, 400, NaiveOponent, FuzzyPlayer)
     game.run()

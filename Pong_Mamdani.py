@@ -239,38 +239,32 @@ class FuzzyPlayer(Player):
         # for Mamdani:
         #   universe variables
         max_x_diff = board.surface.get_width() - racket.width // 2 - ball.width // 2
-        max_y_diff = board.surface.get_height() - racket.height - racket.height // 2 - ball.height // 2
-
         racket_x_dist = fuzz.control.Antecedent(np.arange(-max_x_diff, max_x_diff + 1), "x_distance")
-        racket_y_dist = fuzz.control.Antecedent(np.arange(0, max_y_diff + 1), "y_distance")
         self.racket_velocity = fuzz.control.Consequent(np.arange(-10, 11), "velocity")
 
-        racket_x_dist["left"] = fuzz.trapmf(racket_x_dist.universe, [-max_x_diff, -max_x_diff, -40, 0])
-        racket_x_dist["racket_center"] = fuzz.trimf(racket_x_dist.universe, [-10, 0, 10])
-        racket_x_dist["right"] = fuzz.trapmf(racket_x_dist.universe, [0, 40, max_x_diff, max_x_diff])
+        racket_x_dist["left"] = fuzz.trimf(racket_x_dist.universe, [-max_x_diff, -max_x_diff, 0])
+        racket_x_dist["racket_field"] = fuzz.trimf(racket_x_dist.universe, [-40, 0, 40])
+        racket_x_dist["right"] = fuzz.trimf(racket_x_dist.universe, [0, max_x_diff, max_x_diff])
         racket_x_dist.view()
 
-        racket_y_dist["close"] = fuzz.trimf(racket_y_dist.universe, [0, 0, 100])
-        racket_y_dist["medium"] = fuzz.trimf(racket_y_dist.universe, [0, max_y_diff // 2, max_y_diff])
-        racket_y_dist["far"] = fuzz.trimf(racket_y_dist.universe, [300, max_y_diff, max_y_diff])
-        racket_y_dist.view()
-
-        self.racket_velocity["left_fast"] = fuzz.trapmf(self.racket_velocity.universe, [-10, -10, -9, -9])
-        self.racket_velocity["slow"] = fuzz.trapmf(self.racket_velocity.universe, [-10, -8, 8, 10])
-        self.racket_velocity["right_fast"] = fuzz.trapmf(self.racket_velocity.universe, [9, 9, 10, 10])
+        self.racket_velocity["left"] = fuzz.trimf(self.racket_velocity.universe, [-10, -10, -9])
+        self.racket_velocity["right"] = fuzz.trimf(self.racket_velocity.universe, [9, 10, 10])
         self.racket_velocity.view()
 
         # rules
-        rule_1 = fuzzcontrol.Rule(racket_x_dist["left"] & (racket_y_dist["far"] | racket_y_dist["medium"] | racket_y_dist["close"]), self.racket_velocity["right_fast"])
+        rule_1 = fuzzcontrol.Rule(racket_x_dist["left"], self.racket_velocity["right"])
 
-        rule_2 = fuzzcontrol.Rule(racket_x_dist["racket_center"] & (racket_y_dist["close"] | racket_y_dist["medium"] | racket_y_dist["far"]), self.racket_velocity["right_fast"])
+        if ball.x_speed > 0:
+            rule_2 = fuzzcontrol.Rule(racket_x_dist["racket_field"], self.racket_velocity["right"])
+        else:
+            rule_2 = fuzzcontrol.Rule(racket_x_dist["racket_field"], self.racket_velocity["left"])
 
-        rule_3 = fuzzcontrol.Rule(racket_x_dist["right"] & (racket_y_dist["far"] | racket_y_dist["medium"] | racket_y_dist["close"]), self.racket_velocity["left_fast"])
+        rule_3 = fuzzcontrol.Rule(racket_x_dist["right"], self.racket_velocity["left"])
 
         self.racket_controller = fuzzcontrol.ControlSystem([rule_1, rule_2, rule_3])
 
     def act(self, x_diff: int, y_diff: int):
-        print(f"x_diff: {x_diff}, y_diff: {y_diff}\n")
+        print(f"x_diff: {x_diff}, y_diff: {y_diff} ball_x_speed: {self.ball.x_speed}\n")
 
         velocity = self.make_decision(x_diff, y_diff)
         self.move(self.racket.rect.x + velocity)
@@ -280,11 +274,10 @@ class FuzzyPlayer(Player):
         racket_simulator = fuzzcontrol.ControlSystemSimulation(self.racket_controller)
 
         racket_simulator.input["x_distance"] = x_diff
-        racket_simulator.input["y_distance"] = y_diff
 
         racket_simulator.compute()
         # self.racket_velocity.view(sim=racket_simulator)
-        print(racket_simulator.output["velocity"])
+        print("velocity", racket_simulator.output["velocity"])
 
         try:
             return racket_simulator.output["velocity"]
